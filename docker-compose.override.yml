@@ -1,0 +1,13 @@
+services:
+  web:
+    image: astra-site-web
+    build: ../astra-site
+    expose:
+      - "3000"
+    networks:
+      - mailu_default # Même réseau que Mailu !
+    restart: unless-stopped
+
+networks:
+  mailu_default:
+    external: true

@@ -7,7 +7,6 @@ overrides/*/secrets/*
 *.log
 *.pid
 *.sock
-docker-compose.override.yml
 docker-compose.local.yml
 
 # Certificates & private keys
@@ -44,8 +43,6 @@ yarn-error.log
 # VSCode/settings
 .vscode/
 .idea/
-.env
-.env.*
 
 # Fichiers DB, temporaires ou backups
 *.db
@@ -59,10 +56,6 @@ command
 save-docker.yml
 
 # Nginx confs multiples ou temporaires
-nginx.conf.bad
-nginx.conf.check
-nginx.conf.current
-nginx.conf.new
 root.hints
 unbound.conf
 unbound.conf.backup
