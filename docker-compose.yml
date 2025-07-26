@@ -1,0 +1,227 @@
+      ############################################################
+      # 2) Réseaux
+      ############################################################
+      networks:
+        mail-internal:
+          driver: bridge
+          internal: true
+          ipam:
+            config:
+              - subnet: 172.22.0.0/24
+
+        mail-external:
+          driver: bridge
+          ipam:
+            config:
+              - subnet: 172.23.0.0/24
+
+        webmail:
+          driver: bridge
+
+        oletools:
+          driver: bridge
+          internal: true
+
+        internet:
+          driver: bridge
+        
+        mailu_default:
+          external: true
+
+      ############################################################
+      # 3) Services
+      ############################################################
+      services:
+
+        redis:
+          image: redis:alpine
+          restart: always
+          command:
+            - redis-server
+            - --save
+            - "60"
+            - "1"
+            - --loglevel
+            - warning
+          networks: [mail-internal]
+          volumes:
+            - /mailu/data/redis:/data:rw,noexec,nosuid,nodev
+          read_only: true
+          tmpfs: ["/tmp"]
+          cap_drop: [ALL]
+          security_opt: [no-new-privileges:true]
+
+        oletools:
+          image: ghcr.io/mailu/oletools:2024.06
+          restart: always
+          networks: [oletools]
+          depends_on: [resolver]
+          read_only: true
+          cap_drop: [ALL]
+          security_opt: [no-new-privileges:true]
+
+        resolver:
+          image: ghcr.io/mailu/unbound:2024.06
+          restart: always
+          environment:
+            - SUBNET=172.22.0.0/24
+          networks:
+            mail-internal:
+              ipv4_address: 172.22.0.254
+            internet: {}
+
+        front:
+          image: ghcr.io/mailu/nginx:2024.06
+          restart: always
+          env_file: mailu.env
+          dns:
+          - 172.22.0.254
+          ports:
+            - "80:80"
+            - "443:443"
+            - "25:25"
+            - "995:995"
+            - "993:993"
+            - "4190:4190"
+            - "465:465"
+            - "587:587"
+          networks:
+            mail-external:
+              aliases:
+                - front
+            mail-internal:
+            webmail:
+            mailu_default:
+          depends_on: [resolver]
+          volumes:
+            - ./certs:/certs
+            - ./public:/public:ro
+            - ./overrides/nginx:/overrides/nginx:ro
+            - ./overrides/nginx/extra.conf:/etc/nginx/conf.d/extra.conf:ro
+          tmpfs:
+            - /var/lib/nginx/logs
+          cap_drop:
+            - NET_RAW
+          cap_add:
+            - NET_BIND_SERVICE
+            - CHOWN
+            - DAC_OVERRIDE
+          security_opt:
+            - no-new-privileges:true
+
+        admin:
+          image: ghcr.io/mailu/admin:2024.06
+          restart: always
+          env_file: mailu.env
+          dns:
+          - 172.22.0.254
+          networks: 
+            mail-internal:
+              aliases:
+                - admin
+          depends_on: [redis, resolver]
+          volumes:
+            - /mailu/data/data:/data:rw,noexec,nosuid,nodev
+            - /mailu/data/dkim:/dkim:rw,noexec,nosuid,nodev
+            - ./overrides/admin:/overrides/admin:ro
+          cap_drop: [NET_RAW]
+          cap_add: [SETUID,SETGID,CHOWN]
+          security_opt: [no-new-privileges:true]
+
+        imap:
+          image: ghcr.io/mailu/dovecot:2024.06
+          restart: always
+          env_file: mailu.env
+          dns:
+          - 172.22.0.254 
+          networks:
+            mail-internal:
+              aliases:
+              - imap
+          depends_on:
+            - resolver
+            - admin
+          tmpfs:
+            - /etc/dovecot
+            - /tmp
+          volumes:
+            - /mailu/data/mail:/mail:rw,noexec,nosuid,nodev
+            - /mailu/data/index:/index:rw,noexec,nosuid,nodev
+            - ./certs:/certs:ro
+            - ./overrides/dovecot:/overrides/dovecot:ro
+          cap_drop:
+            - NET_RAW
+          cap_add:
+            - CHOWN
+            - SETUID
+            - SETGID
+          security_opt:
+            - no-new-privileges:true
+
+        smtp:
+          image: ghcr.io/mailu/postfix:2024.06
+          restart: always
+          env_file: mailu.env
+          dns:
+          - 172.22.0.254
+          networks:
+            mail-internal:
+              aliases:
+                - smtp
+            mail-external:
+          depends_on: [front, resolver, admin]
+          tmpfs: [/tmp]
+          volumes:
+            - /mailu/data/mailqueue:/queue:rw,noexec,nosuid,nodev
+            - ./overrides/postfix:/overrides/postfix:ro
+            - ./overrides/dovecot:/overrides/dovecot:ro
+            - ./certs:/certs:ro
+          environment:
+            - ADMIN_API=http://admin:8080
+          cap_drop: [NET_RAW]
+          cap_add: [NET_BIND_SERVICE,CHOWN]
+          security_opt: [no-new-privileges:true]
+
+        antispam:
+          image: ghcr.io/mailu/rspamd:2024.06
+          restart: always
+          env_file: mailu.env
+          read_only: true
+          dns:
+            - 172.22.0.254
+          networks:
+            mail-internal:
+              aliases:
+                - antispam
+            oletools:
+            internet:
+          depends_on:
+            - front
+            - redis
+            - oletools
+            - resolver
+          volumes:
+            - /mailu/data/filter:/var/lib/rspamd:rw,noexec,nosuid,nodev
+            - ./overrides/rspamd/local.d:/etc/rspamd/local.d:rw
+          cap_drop:
+            - NET_RAW
+          cap_add:
+            - SETUID
+            - SETGID
+            - CHOWN
+          security_opt:
+            - no-new-privileges:true
+
+        webmail:
+          image: ghcr.io/mailu/webmail:2024.06
+          restart: always
+          env_file: mailu.env
+          networks: [webmail]
+          depends_on: [front]
+          volumes:
+            - /mailu/data/webmail:/data:rw,noexec,nosuid,nodev
+            - ./overrides/roundcube:/overrides/roundcube:ro
+          cap_drop: [NET_RAW]
+          cap_add: [SETUID,SETGID,CHOWN]
+          security_opt: [no-new-privileges:true]
+          tmpfs: ["/etc/snuffleupagus.rules.d"]

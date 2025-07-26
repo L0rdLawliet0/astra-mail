@@ -1,0 +1,153 @@
+services:
+
+  redis:
+    image: redis:alpine
+    restart: always
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    volumes:
+      - /srv/mailu/data/redis:/data
+    networks:
+      - default
+    dns: [172.22.0.254]
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+
+  resolver:
+    image: ghcr.io/mailu/unbound:2024.06
+    restart: always
+    networks:
+      default:
+        ipv4_address: 172.22.0.254
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - RESOLVER_ALLOWED_NETWORKS=127.0.0.1/32,172.22.0.0/24,10.0.0.0/8,192.168.0.0/16,172.16.0.0/12
+      - RESOLVER_VERBOSITY=1
+
+  front:
+    image: ghcr.io/mailu/nginx:2024.06
+    restart: always
+    env_file: mailu.env
+    logging:
+      driver: json-file
+      options: { tag: mailu-front }
+    ports:
+      - "80:80"
+      - "443:443"
+      - "25:25"
+      - "465:465"
+      - "587:587"
+      - "110:110"
+      - "995:995"
+      - "143:143"
+      - "993:993"
+      - "4190:4190"
+    networks:
+      - default
+      - webmail
+    volumes:
+      - ./certs:/certs:ro
+      - ./public:/public:ro
+    depends_on: [resolver]
+    dns: [172.22.0.254]
+
+  admin:
+    image: ghcr.io/mailu/admin:2024.06
+    restart: always
+    env_file: mailu.env
+    logging:
+      driver: json-file
+      options: { tag: mailu-admin }
+    volumes:
+      - /mailu/data/data:/data
+      - /mailu/data/dkim:/dkim
+    depends_on: [redis, resolver]
+    networks: [default]
+    dns: [172.22.0.254]
+
+  imap:
+    image: ghcr.io/mailu/dovecot:2024.06
+    restart: always
+    env_file: mailu.env
+    logging:
+      driver: json-file
+      options: { tag: mailu-imap }
+    volumes:
+      - ./certs:/certs:ro
+      - /mailu/data/mail:/mail
+      - /mailu/data/overrides/dovecot:/overrides:ro
+    networks: [default]
+    depends_on: [front, resolver]
+    dns: [172.22.0.254]
+
+  smtp:
+    image: ghcr.io/mailu/postfix:2024.06
+    restart: always
+    env_file: mailu.env
+    logging:
+      driver: json-file
+      options: { tag: mailu-smtp }
+    volumes:
+      - /mailu/data/mailqueue:/queue
+      - /mailu/data/overrides/postfix:/overrides:ro
+    depends_on: [front, resolver]
+    networks: [default]
+    dns: [172.22.0.254]
+    environment:
+      - ADMIN_API=http://admin:8080
+
+  antispam:
+    image: ghcr.io/mailu/rspamd:2024.06
+    restart: always
+    env_file: mailu.env
+    logging:
+      driver: json-file
+      options: { tag: mailu-antispam }
+    volumes:
+      - /mailu/data/filter:/var/lib/rspamd
+      - /mailu/data/overrides/rspamd:/overrides:ro
+    networks:
+      - default
+      - oletools
+    depends_on: [front, redis, oletools, resolver]
+    dns: [172.22.0.254]
+
+  oletools:
+    image: ghcr.io/mailu/oletools:2024.06
+    restart: always
+    networks: [oletools]
+    depends_on: [resolver]
+    dns: [172.22.0.254]
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+
+  webmail:
+    image: ghcr.io/mailu/webmail:2024.06
+    restart: always
+    env_file: mailu.env
+    logging:
+      driver: json-file
+      options: { tag: mailu-webmail }
+    volumes:
+      - /mailu/data/webmail:/data
+      - /mailu/data/overrides/roundcube:/overrides:ro
+    networks: [webmail]
+    depends_on: [front]
+
+networks:
+  default:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.22.0.0/24
+  webmail:
+    driver: bridge
+  oletools:
+    driver: bridge
+    internal: true

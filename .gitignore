@@ -1,0 +1,72 @@
+mailu.env
+overrides/*/secret*
+overrides/*/secrets*
+overrides/*/secrets/*
+
+# Docker
+*.log
+*.pid
+*.sock
+docker-compose.override.yml
+docker-compose.local.yml
+
+# Certificates & private keys
+certs/
+letsencrypt/
+ssl/
+*.pem
+*.crt
+*.key
+
+# Mailu volumes/data (local, ne jamais push)
+data/
+data/*
+/mailu/data/
+/mailu/data/*
+
+# System files
+*.swp
+*.swo
+*.bak
+*~
+.DS_Store
+Thumbs.db
+
+# Python cache if used
+__pycache__/
+*.pyc
+
+# Other node/npm cache if present
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# VSCode/settings
+.vscode/
+.idea/
+.env
+.env.*
+
+# Fichiers DB, temporaires ou backups
+*.db
+*.db#
+.tables
+127.0.0.53:53:
+RECOVERY_TIMESTAMP
+SELECT
+backup-*.tar.gz
+command
+save-docker.yml
+
+# Nginx confs multiples ou temporaires
+nginx.conf.bad
+nginx.conf.check
+nginx.conf.current
+nginx.conf.new
+root.hints
+unbound.conf
+unbound.conf.backup
+
+# Mailu secrets (dossier entier !)
+secrets/
+secrets/*
